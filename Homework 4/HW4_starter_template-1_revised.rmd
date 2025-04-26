@@ -1,0 +1,335 @@
+---
+title: "6414_HW4_Fall23_Template"
+output:
+  html_document: default
+  pdf_document: default
+date: "2023-10-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background
+
+The dataset includes information on a specific product from an undisclosed brand. Each row in the dataset represents the sales volume for a week, along with details about the marketing campaigns and promotional methods used for the product throughout the two-year duration. The specific product and corresponding years for this data remain unknown.The dataset is obtained from kaggle linear regression datasets.
+
+The dataset consists of 992 observations of 7 attributes. Below is a brief description of each feature and the response variable (*Sale*) in our dataset:
+
+1.  *Sale*: This variable contains numerical data representing the number of product sales for each observed week.
+
+2.  *Price*: The observed week's base price for the product.
+
+3.  *Radio*: The number of radio advertisements or campaigns promoting the product for the observed week.
+
+4.  *Discount*: The discount rate applicable for the observed week.
+
+5.  *TVSpending*: The average expenditure on television campaigns during the observed week.
+
+6.  *StockRate*: The stock-out rate, calculated as the number of times the product was out of stock divided by the total number of product visits.
+
+7.  *OnlineAdsSpending*: The online ads spending, calculated the total amount of spend on online advertising.
+
+Please load the dataset "market_data.csv" and then split the dataset into a train and test set in a 80:20 ratio. Use the training set to build the models in Questions 1-6. Use the test set to help evaluate model performance in Question 7. Please make sure that you are using R version 3.6.X or above (i.e. version 4.X is also acceptable).
+
+_Note : Note : Owing to the different scales of variance in explanatory columns , all the explanatory columns have been standardized with mean as 0 and variance as 1.this is important as the different models used in this assignment can be error prone/affected is the columns are not standardized._
+
+## Read Data
+
+```{r}
+if (!require("CombMSC", character.only=TRUE)) {
+packageurl <- "https://cran.r-project.org/src/contrib/Archive/CombMSC/CombMSC_1.4.2.1.tar.gz"
+install.packages(packageurl, repos=NULL, type="source")
+}
+library(CombMSC)
+#install.packages("olsrr")
+setwd('C:\\Users\\anoop\\OneDrive\\Documents\\GA Analytics\\IYSE6414\\Module 4\\Homework 4')
+set.seed(100)
+fullData = read.csv("market_data.csv",header=TRUE)
+#fullData <- fullData[, -which(names(fullData) == "InStrSpending")]
+testRows = sample(nrow(fullData),0.2*nrow(fullData))
+testData = fullData[testRows, ]
+trainData = fullData[-testRows, ]
+n = nrow(trainData)
+# Import the libraries
+library(boot)
+library(leaps)
+library(MASS)
+library(glmnet)
+library(olsrr)
+```
+
+```{r}
+head(fullData)
+
+```
+
+Note: Use the training set to build the models in Questions 1-6. Use the test set to help evaluate model performance in Question 7.
+
+## Question 1: Full Model
+
+(a) Fit a multiple linear regression with the variable *Sale* as the response and the other variables as predictors. Call it *model1*. Display the model summary.
+
+```{r}
+model1 = lm(Sale ~ ., data = trainData)
+summary(model1)
+
+```
+
+(b) Which regression coefficients are significant at the 90% confidence level? At the 95% confidence level?
+
+The regression coefficients that are significant at 90% confidence level are: the intercept, Discount, TVSpending, StockRate, Price, and Radio 
+
+The regression coefficients that are significant at 95% confidence level are: the intercept, TVSpending, Price, and Radio.
+
+
+
+(c) What are the Mallow's Cp, AIC, and BIC criterion values for the full model (model1)?
+
+```{r, message=F, warning=F}
+set.seed(100)
+library(leaps)
+
+#Mallow's Cp:
+out = leaps(trainData[,-7], trainData$Sale, method = 'Cp')
+#tail(cbind(as.matrix(out$which),out$Cp),1)
+cat('The Mallow Cp is', tail(out$Cp,1),'.\n')
+
+#AIC
+cat('AIC is', AIC(model1),'.\n')
+
+#BIC
+cat('BIC is', AIC(model1,k = log(nrow(trainData))),'.\n')
+
+#c(Cp(model1,S2 =  sigma(model1)^2), AIC(model1), AIC(model1,k = log(nrow(trainData))))
+```
+
+(d) Build a new model on the training data with only the variables which coefficients were found to be statistically significant at the 95% confident level. Call it *model2*. Perform a Partial F-test to compare this new model with the full model (*model1*). Which one would you prefer? Is it good practice to select variables based on statistical significance of individual coefficients? Explain.
+
+
+```{r}
+set.seed(100)
+model2 = lm(Sale ~ TVSpending + Price + Radio, data = trainData)
+anova(model1, model2)
+
+```
+Since the p value is .04957 and less than .05, we reject the null hypothesis. This means we have sufficient evidence to say that predictor variables - Discount, StockRate and OnlineAdsSpending are statistically significant. Since the full model has evidence that other predictors have some significance, I would prefer to use model1 (the full model).
+
+It is not a good practice to select variables based on statistical significance of the individual coefficient. The statistical significance of a coefficient can change depending on the other variables in the model, so the coefficient can be statistically significant or not in models with different variables. 
+
+
+## Question 2: Full Model Search
+
+(a) Compare all possible models using Mallow's Cp. How many models can be constructed using subsets/combinations drawn from the full set of variables? Display a table indicating the variables included in the best model of each size and the corresponding Mallow's Cp value.
+
+Hint: You can use nbest parameter.
+
+```{r, message=F, warning=F}
+set.seed(100)
+
+cat('The number of models constructed using the combinations drawn from the full set of variables is:', 2^6,'.\n\n')
+out = leaps(trainData[,-7], trainData$Sale, method = 'Cp', nbest = 1)
+cbind(as.matrix(out$which),out$Cp)
+
+
+```
+
+(b) How many variables are in the model with the lowest Mallow's Cp value? Which variables are they? Fit this model and call it *model3*. Display the model summary.
+
+```{r}
+set.seed(100)
+binded = data.frame(cbind(as.matrix(out$which),out$Cp))
+binded[binded$V7 == min(binded$V7),]
+cat('There is',sum(binded[binded$V7 == min(binded$V7),c(1:6)]),'variable in the model with the lowest Cp. The variable is Price.')
+
+model3 = lm(Sale ~ Price, data = trainData)
+summary(model3)
+
+
+```
+
+## Question 3: Stepwise Regression
+
+(a) Perform backward stepwise regression using BIC. Allow the minimum model to be the model with only an intercept, and the full model to be *model1*. Display the model summary of your final model. Call it *model4*
+
+```{r}
+set.seed(100)
+full = model1
+minimum = lm(Sale ~ 1, data = trainData)
+step(full, scope=list(lower=minimum, upper=full), direction="backward", k = log(nrow(trainData)))
+model4 = lm(Sale ~ . -OnlineAdsSpending - Discount - StockRate, data = trainData)
+summary(model4)
+
+
+```
+
+(b) How many variables are in *model4*? Which regression coefficients are significant at the 95% confidence level?
+
+There are 3 variables in model4: TVSpending, Price and Radio. 
+The regression coefficients that are significant at a 95% confidence interval are: TVSpending, Price and Radio
+
+(c) Perform forward stepwise selection with AIC. Allow the minimum model to be the model with only an intercept, and the full model to be *model1*. Display the model summary of your final model. Call it *model5*. Do the variables included in *model5* differ from the variables in *model4*?
+
+```{r}
+set.seed(100)
+full = model1
+minimum = lm(Sale ~ 1, data = trainData)
+step(minimum, scope=list(lower=minimum, upper=full), direction="forward")
+model5 = lm(Sale ~ Price + TVSpending + Radio + StockRate + Discount, data = trainData)
+summary(model5)
+
+cat('The variables in model 4 are TVSpending, Price and Radio, while model 5 has Price, TVSpending, Radio, StockRate, Discount. Model5 has StockRate and Discount as variables while model4 does not.')
+```
+
+
+(d) Compare the adjusted $R^2$, Mallow's Cp, AICs and BICs of the full model (*model1*), the model found in Question 2 (*model3*), and the model found using backward selection with BIC (*model4*). Which model is preferred based on these criteria and why?
+
+```{r}
+set.seed(100)
+
+#model1
+cat('Model1: \nAdj R^2:', summary(model1)$adj.r.squared, '\nModel1 Mallows Cp:', Cp(model1,S2 =  sigma(model1)^2), '\nModel1 AIC:', AIC(model1), '\nModel1 BIC:', AIC(model1,k = log(nrow(trainData))), '\n\n')
+
+#model3
+cat('Model3: \nAdj R^2:', summary(model3)$adj.r.squared, '\nModel3 Mallows Cp:', Cp(model3,S2 =  sigma(model3)^2), '\nModel3 AIC:', AIC(model3), '\nModel3 BIC:', AIC(model3,k = log(nrow(trainData))), '\n\n')
+
+#model4
+cat('Model4: \nAdj R^2:', summary(model4)$adj.r.squared, '\nmodel4 Mallows Cp:', Cp(model4,S2 =  sigma(model4)^2), '\nmodel4 AIC:', AIC(model4), '\nmodel4 BIC:', AIC(model4,k = log(nrow(trainData))), '\n')
+```
+Both model1 and model4 have a larger adj R-squared value than model3, and model1 and model4 both have closer adj R-squared value of .626 and .624 respectively. While both model1 and model4 have similar adj R-squared, AIC and BIC values, model4 Mallow's Cp value is 4, which is lower than model1 Mallow's Cp value of 7. Thus, the preferred model is model4.  
+
+
+## Question 4: Ridge Regression
+
+(a) Perform ridge regression on the training set. Use cv.glmnet() to find the lambda value that minimizes the cross-validation error using 10 fold CV.
+
+```{r}
+set.seed(100)
+ridge.cv <- cv.glmnet(as.matrix(trainData[,-1]), trainData[,1], alpha = 0, nfolds = 10)
+ridgemodel = glmnet(as.matrix(trainData[,-1]), trainData[,1], alpha = 0, nlambda=100)
+cat('\nThe min lambda value for 10 fold CV RIDGE is:',ridge.cv$lambda.min)
+
+```
+
+(b) List the value of coefficients at the optimum lambda value.
+
+
+```{r}
+set.seed(100)
+coef(ridgemodel, s=ridge.cv$lambda.min)
+```
+
+(c) How many variables were selected? Was this result expected? Explain.
+The number of variables selected is 6. This is expected as Ridge Regression doesn't eliminate variables, but rather shrinks variables. 
+
+## Question 5: Lasso Regression
+
+(a) Perform lasso regression on the training set.Use cv.glmnet() to find the lambda value that minimizes the cross-validation error using 10 fold CV.
+
+```{r, message=F, warning=F}
+set.seed(100)
+
+lasso.cv <- cv.glmnet(as.matrix(trainData[,-1]), trainData[,1], alpha = 1, nfolds = 10)
+lassomodel = glmnet(as.matrix(trainData[,-1]), trainData[,1], alpha = 1, nlambda=100)
+cat('\nThe min lambda value for 10 fold CV LASSO is:',lasso.cv$lambda.min)
+```
+
+(b) Plot the regression coefficient path.
+
+```{r}
+set.seed(100)
+plot(lassomodel, xvar = "lambda", lwd = 2)
+abline(v=log(lasso.cv$lambda.min), col='black', lty=2)
+```
+
+(c) How many variables were selected? Which are they?
+
+```{r}
+set.seed(100)
+coef(lassomodel, s=lasso.cv$lambda.min)
+```
+The number of variables selected is 6.
+
+## Question 6: Elastic Net
+
+(a) Perform elastic net regression on the training set. Use cv.glmnet() to find the lambda value that minimizes the cross-validation error using 10 fold CV. Give equal weight to both penalties.
+
+```{r}
+set.seed(100)
+elastic.cv <- cv.glmnet(as.matrix(trainData[,-1]), trainData[,1], alpha = .5, nfolds = 10)
+elasticmodel = glmnet(as.matrix(trainData[,-1]), trainData[,1], alpha = .5, nlambda=100)
+
+cat('\nThe min lambda value for 10 fold CV Elastic(.5) is:',elastic.cv$lambda.min)
+```
+
+(b) List the coefficient values at the optimal lambda. How many variables were selected? How do these variables compare to those from Lasso in Question 5?
+
+```{r}
+set.seed(100)
+coef(elasticmodel, s=elastic.cv$lambda.min)
+
+```
+
+The number of variables selected is 6. The selected variables are the same as Lasso, and the variable values are similar between Lasso and Elastic net regression. 
+
+## Question 7: Model comparison
+
+(a) Predict *Sale* for each of the rows in the test data using the full model, and the models found using backward stepwise regression with BIC, ridge regression, lasso regression, and elastic net. Display the first few predictions for each model.
+
+```{r}
+set.seed(100)
+
+model1.pred = predict(model1, testData[,-1], type = 'response')
+model4.pred = predict(model4, testData[,-1], type = 'response')
+model5.pred = predict(model5, testData[,-1], type = 'response')
+lassomodel.pred = predict(lassomodel, as.matrix(testData[,-1]), s = lasso.cv$lambda.min)
+ridgemodel.pred = predict(ridgemodel, as.matrix(testData[,-1]), s = ridge.cv$lambda.min)
+elasticmodel.pred = predict(elasticmodel, as.matrix(testData[,-1]), s = elastic.cv$lambda.min)
+
+cat('\nModel1 (Full Model) Predictions \n')
+head(model1.pred,5)
+cat('\nModel4 (Backward Stepwise Regression w BIC) Predictions \n')
+head(model4.pred,5)
+cat('\nLasso Model Predictions\n')
+head(lassomodel.pred)[1:5,]
+cat('\nRidge Model Predictions\n')
+head(ridgemodel.pred)[1:5,]
+cat('\nElastic Model Predictions\n')
+head(elasticmodel.pred)[1:5,]
+
+```
+
+(b) Compare the predictions using mean squared prediction error. Which model performed the best?ˆ
+
+```{r}
+set.seed(100)
+
+Full_MSPE <- mean((model1.pred -testData[,1])^2)
+Backward_MSPE <- mean((model4.pred -testData[,1])^2)
+Ridge_MSPE <- mean((ridgemodel.pred -testData[,1])^2)
+Lasso_MSPE <- mean((lassomodel.pred -testData[,1])^2)
+Elastic_MSPE <- mean((elasticmodel.pred -testData[,1])^2)
+
+cat('Full_MSPE:', Full_MSPE,'\n')
+cat('Backward_MSPE:', Backward_MSPE,'\n')
+cat('Ridge_MSPE:', Ridge_MSPE,'\n')
+cat('Lasso_MSPE:', Lasso_MSPE,'\n')
+cat('Elastic_MSPE:', Elastic_MSPE,'\n')
+
+cat('The lowest MSPE, which indicate the model that performed the best, is', min(Full_MSPE, Backward_MSPE, Ridge_MSPE, Lasso_MSPE, Elastic_MSPE),'; This MSPE is from Backward_MSPE or Model4.')
+```
+
+(c) Provide a table listing each method described in Question 7a and the variables selected by each method. Which variables were selected consistently? 
+
+
+|                     | Backward Stepwise | Ridge  | Lasso   |  Elastic Net |
+|---------------------|-------------------|--------|---------|--------------|
+|Discount             |                   |   X    |    X    |      X       |          
+|TVSpending           |         X         |   X    |    X    |      X       | 
+|StockRate            |                   |   X    |    X    |      X       |        
+|Price                |         X         |   X    |    X    |      X       | 
+|Radio                |         X         |   X    |    X    |      X       | 
+|OnlineAdsSpending    |                   |   X    |    X    |      X       | 
+
+
+X = variables selected by each method. The variables selected consistently are TVSpending, Price and Radio
